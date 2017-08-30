@@ -76,7 +76,6 @@ class public PrintUtils
         
         if printers! = null() OR printers!.isEmpty() then
             rem fall back
-            print "fallback"
             printers! = BBjAPI().lookupPrinters(null(), f_client%)
         fi
 
