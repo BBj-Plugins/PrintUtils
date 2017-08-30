@@ -1,0 +1,94 @@
+REM /**
+REM  * PrintUtils.bbj
+REM  * @author BASIS
+REM  *
+REM  */
+
+class public PrintUtils
+
+    REM /**
+    REM  * lookupPrinters: alternate version of BBjAPI().lookupPrinters
+    REM  * purpose: workaround for this problem:
+    REM  * These sources describe the problem from Java's point of view
+    REM  * https://bugs.openjdk.java.net/browse/JDK-8182683
+    REM  * https://bugs.openjdk.java.net/browse/JDK-8180347
+    REM  * basically the JVM sporadically crashes on some Windows systems
+    REM  * when looking up printers
+    REM  * so this method tries to use powershell to lookup the printers
+    REM  * instead of the Java internal method
+    REM  * falling back to the BBj version
+    REM  */
+    method public static BBjVector lookupPrinters(BBjInt f_client%)
+    
+        rem we're caching the result in the GroupNamespace
+        rem to further reduce the risk of JVM crashes 
+        
+        ns$="_______lookupPrinters___"+str(f_client%)
+        ns! = BBjAPI().getGroupNamespace()
+        
+        methodret ns!.getValue(ns$,err=*next)
+
+        if (info(3,6)<>"5") then
+        
+            cmd$ = "powershell -Command ""get-WmiObject -class Win32_printer | ft name"""
+            
+            rem not BUI
+            if f_client% = 0 then
+                rem server
+                os$ = str(System@.getProperty("os.name"))
+                if pos("Windows"=os$)>0 then
+                    printers! = new BBjVector()
+                    p! = Runtime.getRuntime().exec(cmd$)
+                    inp! = new java.io.BufferedReader( new java.io.InputStreamReader(p!.getInputStream()) )
+                    while 1
+                        r! = inp!.readLine()
+                        if r! = null() then 
+                            break
+                        fi
+                        entry$ = cvs(str(r!),3) 
+                        if entry$  = "name" or entry$ = "----" or entry$="" then
+                            continue
+                        fi
+                        printers!.addItem(entry$)
+                    wend
+                fi
+            else
+                rem client
+                os$ = System.getProperty("os.name")
+                if pos("Windows"=os$)>0 then
+                    printers! = new BBjVector()
+                    p! = Runtime@.getRuntime().exec(cmd$)
+                    inp! = new java.io.BufferedReader@(new java.io.InputStreamReader@(p!.getInputStream()))
+                    while 1
+                        r! = inp!.readLine()
+                        if r! = null() then 
+                            break
+                        fi
+                        entry$ = cvs(str(r!),3) 
+                        if entry$  = "name" or entry$ = "----" or entry$="" then
+                            continue
+                        fi
+                        printers!.addItem(entry$)
+                    wend                    
+                fi                
+            fi
+        fi
+        
+        if printers! = null() OR printers!.isEmpty() then
+            rem fall back
+            print "fallback"
+            printers! = BBjAPI().lookupPrinters(null(), f_client%)
+        fi
+
+        rem setting the value to cache
+        ns!.setValue(ns$,printers!)
+        methodret printers!
+    
+    methodend 
+
+classend 
+
+
+
+
+
