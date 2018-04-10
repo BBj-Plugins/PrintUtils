@@ -1,10 +1,15 @@
+use java.lang.Process
+use java.io.BufferedReader
+use java.io.InputStreamReader
+
 REM /**
 REM  * PrintUtils.bbj
 REM  * @author BASIS
-REM  *
 REM  */
-
 class public PrintUtils
+
+    field private static BBjString lookupPrintersNamespaceKey$       = "_______lookupPrinters_______"
+    field private static BBjString lookupDefaultPrinterNamespaceKey$ = "_______lookupDefaultPrinter_______"
 
     REM /**
     REM  * lookupPrinters: alternate version of BBjAPI().lookupPrinters
@@ -19,58 +24,34 @@ class public PrintUtils
     REM  * falling back to the BBj version
     REM  */
     method public static BBjVector lookupPrinters(BBjInt f_client%)
+        if f_client% <> 0 then
+            f_client% = 1
+        endif
     
         rem we're caching the result in the GroupNamespace
         rem to further reduce the risk of JVM crashes 
         
-        ns$="_______lookupPrinters___"+str(f_client%)
+        ns$ = #lookupPrintersNamespaceKey$ + str(f_client%)
         ns! = BBjAPI().getGroupNamespace()
         
+        rem returning the cached value if present
         methodret ns!.getValue(ns$,err=*next)
 
         if (info(3,6)<>"5") then
-        
+            rem not BUI
+            
             cmd$ = "powershell -Command ""get-WmiObject -class Win32_printer | ft name"""
             
-            rem not BUI
             if f_client% = 0 then
-                rem server
-                os$ = str(System@.getProperty("os.name"))
-                if pos("Windows"=os$)>0 then
-                    printers! = new BBjVector()
-                    p! = Runtime.getRuntime().exec(cmd$)
-                    inp! = new java.io.BufferedReader( new java.io.InputStreamReader(p!.getInputStream()) )
-                    while 1
-                        r! = inp!.readLine()
-                        if r! = null() then 
-                            break
-                        fi
-                        entry$ = cvs(str(r!),3) 
-                        if entry$  = "name" or entry$ = "----" or entry$="" then
-                            continue
-                        fi
-                        printers!.addItem(entry$)
-                    wend
-                fi
-            else
-                rem client
                 os$ = System.getProperty("os.name")
                 if pos("Windows"=os$)>0 then
-                    printers! = new BBjVector()
-                    p! = Runtime@.getRuntime().exec(cmd$)
-                    inp! = new java.io.BufferedReader@(new java.io.InputStreamReader@(p!.getInputStream()))
-                    while 1
-                        r! = inp!.readLine()
-                        if r! = null() then 
-                            break
-                        fi
-                        entry$ = cvs(str(r!),3) 
-                        if entry$  = "name" or entry$ = "----" or entry$="" then
-                            continue
-                        fi
-                        printers!.addItem(entry$)
-                    wend                    
-                fi                
+                    printers! = #getServerPrinterNames(cmd$)
+                fi
+            else
+                os$ = str(System@.getProperty("os.name"))
+                if pos("Windows"=os$)>0 then
+                    printers! = #getClientPrinterNames(cmd$)
+                fi
             fi
         fi
         
@@ -81,13 +62,149 @@ class public PrintUtils
 
         rem setting the value to cache
         ns!.setValue(ns$,printers!)
+        
         methodret printers!
-    
     methodend 
+    
+    rem /**
+    rem  * Returns a BBjString with the client's or server's default printer name.
+    rem  * 
+    rem  * @param f_client% The BBjInt value specifying whether to return the 
+    rem  *                  client's or server's default printer name
+    rem  * 
+    rem  * @return a BBjString with the client's or server's default printer name.
+    rem  */
+    method public static BBjString lookupDefaultPrinter(BBjInt f_client%)
+        if f_client% <> 0 then
+            f_client% = 1
+        endif
+        
+        rem we're caching the result in the GroupNamespace
+        rem to further reduce the risk of JVM crashes 
+        
+        ns$ = #lookupDefaultPrinterNamespaceKey$ + str(f_client%)
+        ns! = BBjAPI().getGroupNamespace()
+        
+        rem returning the cached value if present
+        methodret ns!.getValue(ns$,err=*next)
 
-classend 
+        if (info(3,6)<>"5") then
+            rem not BUI
+            
+            cmd$ = "powershell -Command ""Get-WmiObject -Query 'SELECT * FROM Win32_Printer WHERE Default=true' | ft name"""
+            
+            if f_client% = 0 then
+                os$ = System.getProperty("os.name")
+                if pos("Windows"=os$)>0 then
+                    printers! = #getServerPrinterNames(cmd$)
+                fi
+            else
+                os$ = str(System@.getProperty("os.name"))
+                if pos("Windows"=os$)>0 then
+                    printers! = #getClientPrinterNames(cmd$)
+                fi
+            fi
+        fi
+        
+        if printers! = null() OR printers!.isEmpty() then
+            methodret ""
+        fi
 
+        rem setting the value to cache
+        ns!.setValue(ns$,printers!.get(0))
+        
+        methodret printers!.get(0)
+    methodend
+    
+    rem /**
+    rem  * Executes the given command on the server and returns a BBjVector 
+    rem  * with the printer names returned by it.
+    rem  * 
+    rem  * @param command$ The command to execute
+    rem  * @return a BBjVector with the printer names
+    rem  */
+    method private static BBjVector getServerPrinterNames(BBjString command$)
+        declare Process process!
+        process! = Runtime.getRuntime().exec(command$) 
+    
+        declare BufferedReader reader!
+        reader! = new BufferedReader(new InputStreamReader(process!.getInputStream()))
+        
+        declare BBjVector printers!
+        printers! = new BBjVector()
+        
+        while 1
+            line! = reader!.readLine()
+            if line! = null() then 
+                break
+            fi
+            
+            entry$ = cvs(str(line!),3) 
+            if entry$  = "name" or entry$ = "----" or entry$="" then
+                continue
+            fi
+            
+            printers!.addItem(entry$)
+        wend
+        
+        rem closing the stream
+        reader!.close()
+        
+        methodret printers!
+    methodend
+    
+    rem /**
+    rem  * Executes the given command on the client and returns a BBjVector 
+    rem  * with the printer names returned by it.
+    rem  * 
+    rem  * @param command$ The command to execute
+    rem  * @return a BBjVector with the printer names
+    rem  */
+    method private static BBjVector getClientPrinterNames(BBjString command$)
+        declare Process@ process!
+        process! = Runtime@.getRuntime().exec(command$)
+        
+        declare BufferedReader@ reader!
+        reader! = new BufferedReader@(new InputStreamReader@(process!.getInputStream()))
+        
+        declare BBjVector printers!
+        printers! = new BBjVector()
+        
+        while 1
+            line! = reader!.readLine()
+            if line! = null() then 
+                break
+            fi
+            
+            entry$ = cvs(str(line!),3) 
+            if entry$  = "name" or entry$ = "----" or entry$="" then
+                continue
+            fi
+            
+            printers!.addItem(entry$)
+        wend
+        
+        rem closing the stream
+        reader!.close()
+        
+        methodret printers!
+    methodend
+    
+    rem /**
+    rem  * Clears the cache by removing the client or server printer names from the BBjGroupNamespace.
+    rem  * 
+    rem  * @param f_client% The BBjInt value specifying whether to clear the client or server printer names.
+    rem  */
+    method public static void clearCache(BBjInt f_client%)
+        if f_client% <> 0 then
+            f_client% = 1
+        endif
+        
+        declare BBjNamespace namespace!
+        namespace! = BBjAPI().getGroupNamespace()
+        
+        namepsace!.removeValue(#lookupPrintersNamespaceKey$ + str(f_client%), err=*next)
+        namepsace!.removeValue(#lookupDefaultPrinterNamespaceKey$ + str(f_client%), err=*next)
+    methodend
 
-
-
-
+classend
