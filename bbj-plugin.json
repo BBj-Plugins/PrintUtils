@@ -1,6 +1,6 @@
 {
 	"name":"PrintUtils",
-	"description":"A set of printing utilities",
+	"description":"A set of printing utilities to work around typical challenges with client side printing unde Windows.",
 	"version":"1.0",
 	"author":"Basis",
 	"dependencies":[]
